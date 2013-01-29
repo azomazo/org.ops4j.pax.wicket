@@ -43,4 +43,10 @@ public interface Constants {
      */
     String PAGE_ID = "pax.wicket.pageid";
 
+
+    /**
+     * HTTP service selector property. Use HttpTracker to undestend what service use.
+     * Values ​​are separated by semicolons
+     */
+    String HTTP_SERVICE_SELECTOR = "pax.wicket.httpservice.selector";
 }

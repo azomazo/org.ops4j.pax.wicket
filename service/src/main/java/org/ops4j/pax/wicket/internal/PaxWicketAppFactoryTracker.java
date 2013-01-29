@@ -96,12 +96,11 @@ public class PaxWicketAppFactoryTracker implements ServiceTrackerAggregatorReady
             factory = factories.remove(reference);
         }
         LOGGER.debug("Service Removed [{}], Factory hash [{}]", reference, identityHashCode(factory));
-        httpTracker.removeServlet(factory.getMountPoint());
+        httpTracker.removeServlet(reference);
     }
 
     private void addServlet(String mountPoint, Servlet servlet, Map<?, ?> contextParam,
             ServiceReference<WebApplicationFactory<?>> appFactoryReference) {
-        Bundle bundle = appFactoryReference.getBundle();
-        httpTracker.addServlet(mountPoint, servlet, contextParam, bundle);
+        httpTracker.addServlet(mountPoint, servlet, contextParam, appFactoryReference);
     }
 }
