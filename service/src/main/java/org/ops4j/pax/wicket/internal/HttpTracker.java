@@ -15,13 +15,13 @@
  */
 package org.ops4j.pax.wicket.internal;
 
-import java.util.HashMap;
-import java.util.Map;
+import java.util.*;
 
 import javax.servlet.Servlet;
 import javax.servlet.ServletException;
 
-import org.osgi.framework.Bundle;
+import org.apache.wicket.util.collections.MultiMap;
+import org.ops4j.pax.wicket.api.WebApplicationFactory;
 import org.osgi.framework.BundleContext;
 import org.osgi.framework.ServiceReference;
 import org.osgi.service.http.HttpService;
@@ -33,28 +33,33 @@ import org.slf4j.LoggerFactory;
 /**
  * This class tracks the HTTPService and provide methods to add/remove a servlet under a given mount-point. Servlets are
  * added/removed whenever a http service is registered
- * 
+ *
  * @author Christoph Läubrich
- * 
+ *
  */
 final class HttpTracker extends ServiceTracker {
 
     private static final Logger LOG = LoggerFactory.getLogger(HttpTracker.class);
 
-    private HttpService httpService;
-    private final HashMap<String, ServletDescriptor> servlets = new HashMap<String, ServletDescriptor>();
+    private Map<HttpService, ServiceReference> httpServices;
+    private final Map<ServiceReference, ServletDescriptor> servlets;
 
     HttpTracker(BundleContext context) {
         super(context, HttpService.class.getName(), null);
+        httpServices = new HashMap<HttpService, ServiceReference>();
+        servlets = new HashMap<ServiceReference, ServletDescriptor>();
     }
 
     @Override
-    public final Object addingService(ServiceReference serviceReference) {
-        // TODO This does not work well with multiple http services!
-        httpService = (HttpService) super.addingService(serviceReference);
+    public final HttpService addingService(ServiceReference serviceReference) {
+        HttpService httpService = (HttpService) super.addingService(serviceReference);
+        if (!httpServices.containsKey(httpService)) {
+            httpServices.put(httpService, serviceReference);
+        }
+
         synchronized (servlets) {
             for (ServletDescriptor servletDescriptor : servlets.values()) {
-                registerServletDescriptor(servletDescriptor);
+                registerServletDescriptor(serviceReference, httpService, servletDescriptor);
             }
         }
         return httpService;
@@ -64,8 +69,8 @@ final class HttpTracker extends ServiceTracker {
     public final void removedService(ServiceReference serviceReference, Object httpService) {
         // TODO This does not work well with multiple http services!
         synchronized (servlets) {
-            for (ServletDescriptor servletDescriptor : servlets.values()) {
-                unregisterServletDescriptor(servletDescriptor);
+            for(ServletDescriptor servletDescriptor : servlets.values()){
+                servletDescriptor.unregister((HttpService)httpService);
             }
         }
         super.removedService(serviceReference, httpService);
@@ -73,7 +78,7 @@ final class HttpTracker extends ServiceTracker {
 
     /**
      * Unregister a servlet descriptor handling runtime exceptions
-     * 
+     *
      */
     private void unregisterServletDescriptor(ServletDescriptor servletDescriptor) {
         try {
@@ -87,9 +92,15 @@ final class HttpTracker extends ServiceTracker {
 
     /**
      * Register a servlet descriptor with an {@link HttpService} using a {@link ServletDescriptor}
-     * 
      */
-    private void registerServletDescriptor(ServletDescriptor servletDescriptor) {
+    private void registerServletDescriptor(ServiceReference serviceReference, HttpService httpService, ServletDescriptor servletDescriptor) {
+        if(!servletDescriptor.checkHttpServiceReference(serviceReference)){
+            // TODO write log
+            LOG.debug("");
+            return;
+        }
+        // TODO check that in this httpservice not registreterd alias
+
         try {
             servletDescriptor.register(httpService);
         } catch (RuntimeException e) {
@@ -107,28 +118,31 @@ final class HttpTracker extends ServiceTracker {
         }
     }
 
-    public final void addServlet(String mountPoint, Servlet servlet, Map<?, ?> contextParams, Bundle paxWicketBundle) {
+    private void registerServletDescriptor(ServletDescriptor servletDescriptor) {
+        for (Map.Entry<HttpService, ServiceReference> entry : httpServices.entrySet()) {
+            registerServletDescriptor(entry.getValue(), entry.getKey(), servletDescriptor);
+        }
+    }
+
+
+    public final void addServlet(String mountPoint, Servlet servlet, Map<?, ?> contextParams, ServiceReference appFactoryReference) {
         mountPoint = GenericContext.normalizeMountPoint(mountPoint);
         ServletDescriptor descriptor =
-            new ServletDescriptor(servlet, mountPoint, paxWicketBundle, contextParams);
+            new ServletDescriptor(servlet, mountPoint, appFactoryReference.getBundle(), contextParams);
         synchronized (servlets) {
-            ServletDescriptor put = servlets.put(mountPoint, descriptor);
-            if (put != null) {
-                LOG.warn(
-                    "Two servlets are registered under the same mountpoint '{}' the first of them is overwritten by the second call",
-                    mountPoint);
-                unregisterServletDescriptor(put);
-            }
+            servlets.put(appFactoryReference, descriptor);
             registerServletDescriptor(descriptor);
         }
     }
 
-    public final void removeServlet(String mountPoint) {
-        mountPoint = GenericContext.normalizeMountPoint(mountPoint);
+    public final void removeServlet(ServiceReference appFactoryReference) {
         synchronized (servlets) {
-            ServletDescriptor remove = servlets.remove(mountPoint);
-            if (remove != null) {
-                unregisterServletDescriptor(remove);
+            if(servlets.containsKey(appFactoryReference)){
+                unregisterServletDescriptor(servlets.get(appFactoryReference));
+                ServletDescriptor remove = servlets.remove(appFactoryReference);
+                if (remove != null) {
+                    unregisterServletDescriptor(remove);
+                }
             }
         }
 
