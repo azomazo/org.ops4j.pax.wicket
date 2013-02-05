@@ -129,7 +129,11 @@ public class PaxWicketApplicationFactory implements IWebApplicationFactory {
                 handleOnDestroy();
             }
             method.setAccessible(true);
-            return methodProxy.invokeSuper(object, args);
+            Object proxyMethodRetyurn = methodProxy.invokeSuper(object, args);
+            if (isInernalInitMethod(method)) {
+                handleAfterInterInit((WebApplication) object);
+            }
+            return proxyMethodRetyurn;
         }
 
         /**
@@ -158,6 +162,10 @@ public class PaxWicketApplicationFactory implements IWebApplicationFactory {
             return checkSignature(method, "finalize", void.class);
         }
 
+        private boolean isInernalInitMethod(Method methid) {
+            return checkSignature(methid, "internalInit", void.class);
+        }
+
         private boolean isInitMethod(Method method) {
             return checkSignature(method, "init", void.class);
         }
@@ -170,10 +178,14 @@ public class PaxWicketApplicationFactory implements IWebApplicationFactory {
             return checkSignature(method, "onDestroy", void.class);
         }
 
-        private void handleInit(WebApplication application) {
-            // application.initApplication();
+        private void handleAfterInterInit(WebApplication application) {
             delegatingClassResolver = new DelegatingClassResolver(bundleContext, applicationName);
             delegatingClassResolver.intialize();
+            application.getApplicationSettings().setClassResolver(delegatingClassResolver);
+        }
+
+        private void handleInit(WebApplication application) {
+            // application.initApplication();
 
             delegatingComponentInstanciationListener =
                     new DelegatingComponentInstanciationListener(bundleContext, applicationName);
